@@ -1,0 +1,390 @@
+package slp;
+
+import java_cup.runtime.*;
+import java.util.LinkedList;
+
+parser code  {:
+	/** Causes the parsr to print every token it reads.
+	 * This is useful for debugging.
+	 */
+	public boolean printTokens;
+	
+	private Lexer lexer;
+
+	public Parser(Lexer lexer) {
+		super(lexer);
+		this.lexer = lexer;
+	}
+	
+	public int getLine() {
+		return lexer.getLineNumber();
+	}
+	
+	public void syntax_error(Symbol s) {
+		Token tok = (Token) s;
+		System.out.println("Line " + tok.getLine()+": Syntax error; unexpected " + tok);
+	}
+:}
+
+// This is just for debugging
+scan with {:
+	Token t = lexer.next_token();
+	if (printTokens)
+		System.out.println(t.getLine() + ":" + t);
+	return t; 
+:};
+
+terminal PLUS, MINUS, MULTIPLY, DIVIDE, LP, RP, SEMI, ASSIGN, GT, LT, GTE, LTE, LAND, LOR;
+terminal Integer INTEGER;
+terminal String ID;
+terminal String CLASS_ID;
+terminal String QUOTE;
+terminal UMINUS;
+
+terminal MOD;
+terminal BOOLEAN, BREAK, CLASS, COMMA, CONTINUE, DOT, EQUAL, EXTENDS, ELSE, FALSE, IF, INT;
+terminal LB, LCBR, LENGTH, NEW, LNEG, NEQUAL, NULL, RB, RCBR, RETURN, STATIC, STRING;
+terminal THIS, TRUE, VOID, WHILE;
+
+non terminal Expr expr, bin_op, un_op;
+non terminal LinkedList<Expr> expr_list, lb_expr_rb;
+non terminal Stmt stmt, elseStmt_or_empty;
+non terminal StmtsBlock stmts, lcbr_stmts_rcbr;
+non terminal Call call_expr ,static_call, virtual_call;
+non terminal CallStmt call_stmt ,static_call_stmt, virtual_call_stmt;
+non terminal Location location;
+non terminal Type type;
+non terminal LinkedList<ASTNode> methodfields, methodfields_or_empty;
+non terminal LinkedList<String> field_id_list; 
+non terminal LinkedList<Field> field; 
+non terminal Method method;
+non terminal StaticMethod static_method;
+non terminal Formal formal;
+non terminal LinkedList<Formal> formals, lp_formals_rp;
+non terminal ICClass ic_class;
+non terminal Program program;
+non terminal String extends_or_empty;
+non terminal LiteralExpr literal;
+
+precedence right ASSIGN;
+precedence left LOR;
+precedence left LAND;
+precedence left EQUAL, NEQUAL;
+precedence left GT, LT, GTE, LTE;
+precedence left PLUS, MINUS;
+precedence left DIVIDE, MULTIPLY, MOD;
+precedence right UMINUS, LNEG;
+precedence left RP, LP, RB, LB ,RCBR, LCBR, DOT;
+precedence left IF, ELSE;
+
+
+start with program;
+
+program ::= 
+		{: RESULT = null; :}
+		ic_class:c
+		{: RESULT = new Program(cleft, c); :}
+		| program:cl ic_class:c
+		{: cl.add(c); RESULT = cl; :}
+;
+
+ic_class ::= CLASS:c CLASS_ID:id extends_or_empty:ex LCBR:l methodfields_or_empty:mf RCBR:r
+	     {: RESULT = new ICClass(idleft,id,mf,ex); :} 
+		;
+
+	  
+extends_or_empty ::= EXTENDS CLASS_ID:cid
+						{: RESULT = cid; :}
+                   | // empty 
+						{: RESULT = null; :}
+                   ;
+                   
+// A list of methods or fields
+
+
+methodfields_or_empty ::= methodfields:m
+                        {: RESULT = m; :}  
+                      | // empty 
+                        {: RESULT = new LinkedList<ASTNode>(); :}
+                      ;
+
+                      
+methodfields ::= method:m 
+               {: 
+					RESULT = new LinkedList<ASTNode>();
+					RESULT.add(m);
+               :}
+			| 	field:f
+               {: 
+					RESULT = new LinkedList<ASTNode>();
+					RESULT.addAll(f);
+               :}
+				
+			| methodfields: mf method:m
+               {: 
+					mf.add(m);
+					RESULT = mf; 
+               :} 
+				
+             | methodfields: mf field:f
+               {: 
+					mf.addAll(f);
+					RESULT = mf; 
+               :} 
+			   
+             ;
+
+field ::= type:t field_id_list:fl SEMI 
+          {: RESULT = new LinkedList<Field>();
+             for (String s : fl)
+                 RESULT.add(new Field(tleft,t, s));
+          :} 
+          ;
+          
+ field_id_list ::= ID:id
+           {: RESULT = new LinkedList<String>();
+               RESULT.add(id);
+           :}
+           | field_id_list:l COMMA ID:id
+           {: l.add(id);
+               RESULT = l;
+           :} 
+           ;
+          
+
+method ::= type:t1 ID:iden lp_formals_rp:f1 lcbr_stmts_rcbr:sl
+	{: RESULT = new VirtualMethod(t1left, t1, iden, f1, sl.getStmts());	:}
+	| VOID ID:iden lp_formals_rp:f1 lcbr_stmts_rcbr:sl
+	{: RESULT = new VirtualMethod(idenleft, new PrimitiveType(idenleft,DataType.VOID), iden, f1, sl.getStmts());	:}
+	| static_method :sm
+	{: RESULT = sm; :}	
+	;
+	
+static_method ::= STATIC type:t1 ID:iden lp_formals_rp:f1 lcbr_stmts_rcbr:sl
+	{: RESULT = new StaticMethod(t1left, t1, iden, f1, sl.getStmts()); :}
+	| STATIC VOID ID:iden lp_formals_rp:f1 lcbr_stmts_rcbr:sl
+	{: RESULT = new StaticMethod(idenleft, new PrimitiveType(idenleft,DataType.VOID), iden, f1, sl.getStmts()); :}
+	;
+
+	
+lp_formals_rp ::=  LP formals:fl RP
+				   {: RESULT = fl; :}
+				   | LP RP
+				   {: RESULT = new LinkedList<Formal>(); :} //I changd it from null
+					;
+
+formals ::= formal:f1  
+	{: RESULT = new LinkedList<Formal>(); RESULT.add(f1); :} 
+	| formals:f1 COMMA formal:f
+	{: f1.add(f); RESULT = f1; :} 
+	;
+		
+formal ::= type:t1 ID:id
+		{: RESULT = new Formal(idleft, t1, id); :}
+		;
+	
+type ::= CLASS_ID:c
+		{: RESULT = new UserType(cleft,c); :}
+		| INT:i
+		{: RESULT = new PrimitiveType(ileft,DataType.INT); :}
+		| BOOLEAN:b
+		{: RESULT = new PrimitiveType(bleft,DataType.BOOLEAN); :}
+		| STRING:s
+		{: RESULT = new PrimitiveType(sleft,DataType.STRING); :}
+		| type:t LB RB
+		{: t.incrementDimension(); RESULT = t; :}
+     ;   
+
+
+stmt ::= location:loc ASSIGN expr:e SEMI
+	{:RESULT=new AssignStmt (eleft,loc,e); :}
+	| RETURN:r expr:e SEMI:s
+	{:RESULT = new ReturnStmt(eleft,e); :}
+	| RETURN:r SEMI:s
+	{:RESULT = new ReturnStmt(sleft); :}
+	| BREAK:b SEMI:s
+	{:RESULT = new BreakStmt(sleft); :}
+	| CONTINUE:c SEMI:s
+	{:RESULT = new ContinueStmt(sleft); :}
+	| IF:i LP expr:e RP stmt:s1 elseStmt_or_empty:s2
+	{:RESULT = new IFStmt(eleft,e, s1, s2); :}
+	| WHILE:w LP expr:e RP stmt:s
+	{:RESULT = new WhileStmt(sleft,e, s); :}
+	| call_stmt:c SEMI
+	{: RESULT = c; :}
+	| lcbr_stmts_rcbr:s
+	{: RESULT=s;  :}
+	| type:t ID:id SEMI
+	{: RESULT = new LocalVariable (idleft, t, id); :}
+	| type:t ID:id ASSIGN expr:e SEMI
+	{: RESULT = new LocalVariable (idleft, t, id, e); :}
+;
+
+elseStmt_or_empty ::= ELSE stmt:s
+					{: RESULT = s; :}
+                | // empty
+					{: RESULT = null; :} 
+                ;
+                
+call_stmt ::= static_call_stmt:sc
+		{: RESULT= sc; :}
+		| virtual_call_stmt:vc
+		{: RESULT = vc; :}
+		;
+
+static_call_stmt ::= CLASS_ID:cid DOT ID:id LP expr_list:eList RP 
+			{: RESULT = new StaticCallStmt(cidleft,cid,new StaticCall(cidleft,cid, id,eList)); :}
+			;
+			
+virtual_call_stmt ::= expr:e1 DOT ID:id LP expr_list:eList RP 
+			{: RESULT = new VirtualCallStmt(e1left,new VirtualCall(idleft,e1,id,eList)); :}
+			| ID:id LP expr_list:eList RP
+			{: RESULT = new VirtualCallStmt(idleft,new VirtualCall(idleft,null,id,eList)); :}
+			;
+			
+	
+lcbr_stmts_rcbr ::=  LCBR:l stmt:s RCBR
+					{: RESULT = new StmtsBlock(lleft,s); :}
+					|LCBR stmts:ls RCBR
+					{: RESULT = ls; :}
+					| LCBR:l RCBR
+					{: RESULT = new StmtsBlock(lleft); :}
+					;
+stmts ::= stmt: s
+		{: RESULT = new StmtsBlock(sleft,s); :}
+		| stmts:ls stmt:s
+		{: RESULT = ls; RESULT.add(s); :}
+	;
+	
+expr ::= call_expr: c
+         {: RESULT = c; :}
+         | location:loc
+		 {: RESULT = loc; :}
+         | THIS:t 
+         {: RESULT =  new ThisExpr(tleft); :}
+         | NEW CLASS_ID:cid LP RP 
+         {: RESULT = new NewClass(cidleft,cid); :}  
+         | NEW:n type:t lb_expr_rb:lb
+         {: RESULT = new NewArrayExpr(tleft,t,lb); :}
+         | expr: e1 DOT LENGTH 
+         {: RESULT = new Length(e1left,e1); :}
+         | bin_op: b
+         {: RESULT = b; :}
+         | un_op: u 
+         {: RESULT = u; :}  
+         | literal: l
+         {: RESULT = l; :}  
+         | LP:l expr: e1 RP
+         {: RESULT = e1; :}
+                 
+ ; 
+
+lb_expr_rb ::= LB expr:e RB
+			{: RESULT = new LinkedList<Expr>(); RESULT.add(e); :}
+			| lb_expr_rb:le LB expr: e RB
+			{: le.add(e); RESULT=le; :};	 	
+				
+expr_list ::=
+			{: RESULT =new LinkedList<Expr>(); :}
+			| expr:e1
+			{: RESULT = new LinkedList<Expr>(); RESULT.add(e1); :}
+			| expr_list:elist COMMA expr:e2
+			{: elist.add(e2); RESULT=elist; :}
+			;
+		
+bin_op ::= expr:e1 PLUS:p expr:e2
+		{: RESULT = new MathematicalBinaryExpr(e1left,e1, Operator.PLUS,e2);
+		
+		 :}
+		| expr:e1 MINUS expr:e2
+		{: RESULT = new MathematicalBinaryExpr(e1left,e1, Operator.MINUS,e2);
+
+		 :}
+		| expr:e1 MULTIPLY expr:e2
+		{: RESULT = new MathematicalBinaryExpr(e1left,e1, Operator.MULTIPLY,e2);
+	
+		 :}
+		| expr:e1 DIVIDE expr:e2
+		{: RESULT = new MathematicalBinaryExpr(e1left,e1, Operator.DIVIDE,e2);
+
+		 :}
+		 | expr:e1 MOD expr:e2
+		{: RESULT = new MathematicalBinaryExpr(e1left,e1, Operator.MOD,e2);
+
+		 :}
+		| expr:e1 LAND expr:e2
+		{: RESULT = new LogicalBinaryExpr(e1left,e1, Operator.LAND,e2);
+
+		 :}
+		| expr:e1 LOR expr:e2
+		{: RESULT = new LogicalBinaryExpr(e1left,e1, Operator.LOR,e2);
+
+		 :}
+		| expr:e1 LT expr:e2
+		{: RESULT = new LogicalBinaryExpr(e1left,e1, Operator.LT,e2);
+
+		 :}
+		 | expr:e1 LTE expr:e2
+		{: RESULT = new LogicalBinaryExpr(e1left,e1, Operator.LTE,e2);
+
+		 :}
+		| expr:e1 GT expr:e2
+		{: RESULT = new LogicalBinaryExpr(e1left,e1, Operator.GT,e2);
+
+		 :}
+		| expr:e1 GTE expr:e2
+		{: RESULT = new LogicalBinaryExpr(e1left,e1, Operator.GTE,e2);
+
+		 :}
+		| expr:e1 EQUAL expr:e2
+		{: RESULT = new LogicalBinaryExpr(e1left,e1, Operator.EQUAL,e2);
+	
+		 :}
+		| expr:e1 NEQUAL expr:e2
+		{: RESULT = new LogicalBinaryExpr(e1left,e1, Operator.NEQUAL,e2);
+
+		 :}
+;
+
+un_op::= MINUS expr:e1
+		{: RESULT = new MathematicalUnaryExpr(e1left,e1, Operator.MINUS); :} %prec UMINUS
+		|  LNEG expr:e1
+		{: RESULT = new LogicalUnaryExpr(e1left,e1, Operator.LNEG); :} 
+;
+
+literal ::= INTEGER:i1 
+	{: RESULT = new LiteralExpr(i1left, LiteralTypes.INTEGER, i1); :}
+	| QUOTE:s1
+	{: RESULT = new LiteralExpr(s1left, LiteralTypes.STRING, s1); :} 
+	| TRUE:t1
+	{: RESULT = new LiteralExpr(t1left, LiteralTypes.TRUE, t1); :}
+	| FALSE:f1
+	{: RESULT = new LiteralExpr(f1left, LiteralTypes.FALSE, f1); :}
+	| NULL:n1
+	{: RESULT = new LiteralExpr(n1left, LiteralTypes.NULL, n1); :}
+;
+
+
+call_expr ::= static_call:sc
+		{: RESULT= sc; :}
+		| virtual_call:vc
+		{: RESULT = vc; :}
+		;
+		
+static_call ::= CLASS_ID:cid DOT ID:id LP expr_list:eList RP 
+			{: RESULT = new StaticCall(cidleft,cid, id,eList); :}
+			;
+			
+virtual_call ::= expr:e1 DOT ID:id LP expr_list:eList RP 
+			{: RESULT = new VirtualCall(e1left,e1,id,eList); :}
+			| ID:id LP expr_list:eList RP
+			{: RESULT = new VirtualCall(idleft,null,id,eList); :}
+			;
+
+location ::= ID:id
+			{: RESULT = new LocationVar (idleft,id); :}
+			| expr:e1 DOT ID:id
+			{: RESULT = new LocationVar (e1left,id,e1); :}
+			| expr:e1 LB expr:e2 RB
+			{: RESULT = new LocationArray (e1left, e1, e2); :}
+			;			

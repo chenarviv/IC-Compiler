@@ -1,0 +1,102 @@
+package slp;
+
+import java.util.List;
+import java.util.LinkedList;
+import java.util.ArrayList;
+import java_cup.runtime.Symbol;
+
+parser code  {:
+	
+	public void unrecovered_syntax_error(Symbol s) throws SyntaxError{
+	System.out.println("compiler has detected a syntax error at line " + s.left + " column " + s.right);
+		throw new SyntaxError(s.left,s.toString(),"");
+	}
+	public void syntax_error(Symbol s) {
+	
+	}
+:}
+
+
+
+////////////////////////////////////////////
+// Symbol list (terminals and non-terminals)
+
+non terminal ICClass class;
+non terminal LinkedList<Method> libmethodList;
+non terminal LibraryMethod libmethod;
+non terminal Type type;
+non terminal LinkedList<Formal> formals;
+non terminal Formal formal;
+
+terminal         ASSIGN, BOOLEAN, BREAK, CLASS, COMMA, CONTINUE, DIVIDE, DOT, EQUAL, EXTENDS,
+				 ELSE, FALSE, GT, GTE, IF, INT, LAND, LB, LP, LCBR, LENGTH, NEW, LNEG,
+				 LOR, LT, LTE, MINUS, MOD, MULTIPLY, NEQUAL, NULL, PLUS, RB, RCBR, RETURN, RP,
+				 SEMI, STATIC, STRING, THIS, TRUE, VOID, WHILE, CLASSIDENT, LIBRARY, STRING_LITERAL;
+				 
+terminal 		UMINUS;
+terminal String INTEGER;
+terminal String CLASS_ID;
+terminal String ID;
+terminal String QUOTE;
+
+//////////////////////////
+// Precedence declarations
+
+precedence right ASSIGN;
+precedence left LOR;
+precedence left LAND;
+precedence left EQUAL, NEQUAL;
+precedence left LT, LTE, GT, GTE;
+precedence left PLUS, MINUS;
+precedence left DIVIDE, MULTIPLY, MOD;
+precedence right UMINUS, LNEG;
+precedence left RP, LP, RB, LB, DOT;
+precedence left IF,ELSE;
+//////////////
+// The grammar
+
+start with class;
+      
+// Identifies the 'Library' class. if its name is not 'Library' a Syntax error is thrown 
+class ::= CLASS LIBRARY LCBR libmethodList:m1 RCBR 
+	{: RESULT = new ICClass(1, "Library" , m1); :};
+	
+// Creates a list of all the methods in the Library class
+libmethodList ::= libmethod:m  
+		{: RESULT = new LinkedList<Method>(); RESULT.add(m); :}
+     	| libmethodList:m1 libmethod:m
+		{: m1.add(m); RESULT = m1; :};
+	   
+// Identifies a single library method in the Library class
+libmethod ::= STATIC type:t1 ID:iden LP formals:f1 RP SEMI
+	{: RESULT = new LibraryMethod(idenleft, t1, iden, f1); :}
+	| STATIC type:t1 ID:iden LP RP SEMI
+	{: RESULT = new LibraryMethod(idenleft, t1, iden, new LinkedList<Formal>()); :}
+	| STATIC VOID ID:iden LP formals:f1 RP SEMI
+	{: RESULT = new LibraryMethod(idenleft, new PrimitiveType(idenleft,DataType.VOID), iden, f1); :}
+	| STATIC VOID ID:iden LP RP SEMI
+	{: RESULT = new LibraryMethod(idenleft, new PrimitiveType(idenleft,DataType.VOID), iden, new LinkedList<Formal>()); :};
+
+// Creates a list of formals
+formals ::= formal:f1  
+	{: RESULT = new LinkedList<Formal>();
+	RESULT.add(f1); :} 
+	| formals:f1 COMMA formal:f
+	{: f1.add(f); RESULT = f1; :};
+	
+// Identifies one formal
+formal ::= type:t1 ID:iden
+		{: RESULT = new Formal(idenleft, t1, iden); :};
+	
+// Identifies all kinds of literals (basic elements) in the program
+type ::= CLASS_ID:c
+		{: RESULT = new UserType(cleft, c); :}
+		| INT:i
+		{: RESULT = new PrimitiveType(ileft, DataType.INT); :}
+		| BOOLEAN:b
+		{: RESULT = new PrimitiveType(bleft, DataType.BOOLEAN); :}
+		| STRING:s
+		{: RESULT = new PrimitiveType(sleft, DataType.STRING); :}
+		| type:t LB RB
+		{: t.incrementDimension();
+     	   RESULT = t; :};
